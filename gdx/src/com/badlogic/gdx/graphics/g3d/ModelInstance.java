@@ -16,19 +16,15 @@
 
 package com.badlogic.gdx.graphics.g3d;
 
-import com.badlogic.gdx.graphics.g3d.model.Animation;
-import com.badlogic.gdx.graphics.g3d.model.Node;
-import com.badlogic.gdx.graphics.g3d.model.NodeAnimation;
-import com.badlogic.gdx.graphics.g3d.model.NodeKeyframe;
-import com.badlogic.gdx.graphics.g3d.model.NodePart;
+import com.badlogic.gdx.graphics.g3d.model.*;
 import com.badlogic.gdx.math.Matrix4;
-import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.math.collision.BoundingBox;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ArrayMap;
-import com.badlogic.gdx.utils.ObjectMap;
 import com.badlogic.gdx.utils.Pool;
+
+import java.util.Arrays;
 
 /** An instance of a {@link Model}, allows to specify global transform and modify the materials, as it has a copy of the model's
  * materials. Multiple instances can be created from the same Model, all sharing the meshes and textures of the Model. The Model
@@ -292,31 +288,19 @@ public class ModelInstance implements RenderableProvider {
 			for (final NodeAnimation nanim : anim.nodeAnimations) {
 				final Node node = getNode(nanim.node.id);
 				if (node == null) continue;
+				if (nanim.times.length == 0) continue;
 				NodeAnimation nodeAnim = new NodeAnimation();
 				nodeAnim.node = node;
+				nodeAnim.translationOffset = nanim.translationOffset;
+				nodeAnim.rotationOffset = nanim.rotationOffset;
+				nodeAnim.scaleOffset = nanim.scaleOffset;
 				if (shareKeyframes) {
-					nodeAnim.translation = nanim.translation;
-					nodeAnim.rotation = nanim.rotation;
-					nodeAnim.scaling = nanim.scaling;
+					nodeAnim.times = nanim.times;
+					nodeAnim.data = nanim.data;
 				} else {
-					if (nanim.translation != null) {
-						nodeAnim.translation = new Array<NodeKeyframe<Vector3>>();
-						for (final NodeKeyframe<Vector3> kf : nanim.translation)
-							nodeAnim.translation.add(new NodeKeyframe<Vector3>(kf.keytime, kf.value));
-					}
-					if (nanim.rotation != null) {
-						nodeAnim.rotation = new Array<NodeKeyframe<Quaternion>>();
-						for (final NodeKeyframe<Quaternion> kf : nanim.rotation)
-							nodeAnim.rotation.add(new NodeKeyframe<Quaternion>(kf.keytime, kf.value));
-					}
-					if (nanim.scaling != null) {
-						nodeAnim.scaling = new Array<NodeKeyframe<Vector3>>();
-						for (final NodeKeyframe<Vector3> kf : nanim.scaling)
-							nodeAnim.scaling.add(new NodeKeyframe<Vector3>(kf.keytime, kf.value));
-					}
+					nodeAnim.times = Arrays.copyOf(nanim.times, nanim.times.length);
+					nodeAnim.data = Arrays.copyOf(nanim.data, nanim.data.length);
 				}
-				if (nodeAnim.translation != null || nodeAnim.rotation != null || nodeAnim.scaling != null)
-					animation.nodeAnimations.add(nodeAnim);
 			}
 			if (animation.nodeAnimations.size > 0) animations.add(animation);
 		}

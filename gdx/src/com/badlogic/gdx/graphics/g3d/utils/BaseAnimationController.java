@@ -20,11 +20,9 @@ import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.graphics.g3d.model.Animation;
 import com.badlogic.gdx.graphics.g3d.model.Node;
 import com.badlogic.gdx.graphics.g3d.model.NodeAnimation;
-import com.badlogic.gdx.graphics.g3d.model.NodeKeyframe;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
-import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.badlogic.gdx.utils.ObjectMap;
 import com.badlogic.gdx.utils.ObjectMap.Entry;
@@ -157,61 +155,96 @@ public class BaseAnimationController {
 	}
 
 	private final static Transform tmpT = new Transform();
+	private final static Quaternion tmpQ = new Quaternion();
 
-	private final static <T> int getFirstKeyframeIndexAtTime (final Array<NodeKeyframe<T>> arr, final float time) {
-		final int n = arr.size - 1;
-		for (int i = 0; i < n; i++) {
-			if (time >= arr.get(i).keytime && time <= arr.get(i + 1).keytime) {
+	private final static int getFirstKeyframeIndexAtTime (final float[] times, final int baseIdx, final int count, final float time) {
+		final int last = baseIdx + count - 1;
+		for (int i = baseIdx; i < last; i++) {
+			if (time >= times[i] && time <= times[i + 1]) {
 				return i;
 			}
 		}
 		return 0;
 	}
 
-	private final static Vector3 getTranslationAtTime (final NodeAnimation nodeAnim, final float time, final Vector3 out) {
-		if (nodeAnim.translation == null) return out.set(nodeAnim.node.translation);
-		if (nodeAnim.translation.size == 1) return out.set(nodeAnim.translation.get(0).value);
+	private final static Vector3 getVec3(final float[] data, final int idx, final Vector3 out) {
+		int base = idx << 2;
+		out.x = data[base + 0];
+		out.y = data[base + 1];
+		out.z = data[base + 2];
+		return out;
+	}
 
-		int index = getFirstKeyframeIndexAtTime(nodeAnim.translation, time);
-		final NodeKeyframe firstKeyframe = nodeAnim.translation.get(index);
-		out.set((Vector3)firstKeyframe.value);
+	private final static Quaternion getQuat(final float[] data, final int idx, final Quaternion out) {
+		int base = idx << 2;
+		out.x = data[base + 0];
+		out.y = data[base + 1];
+		out.z = data[base + 2];
+		out.w = data[base + 3];
+		return out;
+	}
 
-		if (++index < nodeAnim.translation.size) {
-			final NodeKeyframe<Vector3> secondKeyframe = nodeAnim.translation.get(index);
-			final float t = (time - firstKeyframe.keytime) / (secondKeyframe.keytime - firstKeyframe.keytime);
-			out.lerp(secondKeyframe.value, t);
+	private final static Vector3 getVec3AtTime(final int offset, final int count, final float[] times, final float[] data, float time, final Vector3 out) {
+		int index = getFirstKeyframeIndexAtTime(times, offset, count, time);
+		out.x = data[index + 0];
+		out.y = data[index + 1];
+		out.z = data[index + 2];
+
+		if (++index < offset + count) {
+			// interpolate to a second keyframe
+			float startTime = times[index-1];
+			float endTime = times[index];
+			final float t = (time - startTime) / (endTime - startTime);
+			out.x += t * (data[index + 0] - out.x);
+			out.y += t * (data[index + 1] - out.y);
+			out.z += t * (data[index + 2] - out.z);
 		}
 		return out;
 	}
 
-	private final static Quaternion getRotationAtTime (final NodeAnimation nodeAnim, final float time, final Quaternion out) {
-		if (nodeAnim.rotation == null) return out.set(nodeAnim.node.rotation);
-		if (nodeAnim.rotation.size == 1) return out.set(nodeAnim.rotation.get(0).value);
+	private final static Vector3 getTranslationAtTime (final NodeAnimation nodeAnim, final float time, final Vector3 out) {
+		int offset = nodeAnim.translationOffset;
+		int count = nodeAnim.translationCount;
+		float[] times = nodeAnim.times;
+		float[] data = nodeAnim.data;
 
-		int index = getFirstKeyframeIndexAtTime(nodeAnim.rotation, time);
-		final NodeKeyframe firstKeyframe = nodeAnim.rotation.get(index);
-		out.set((Quaternion)firstKeyframe.value);
+		if (offset < 0) return out.set(nodeAnim.node.translation);
+		if (count == 1) return getVec3(data, offset, out);
 
-		if (++index < nodeAnim.rotation.size) {
-			final NodeKeyframe<Quaternion> secondKeyframe = nodeAnim.rotation.get(index);
-			final float t = (time - firstKeyframe.keytime) / (secondKeyframe.keytime - firstKeyframe.keytime);
-			out.slerp(secondKeyframe.value, t);
-		}
-		return out;
+		return getVec3AtTime(offset, count, times, data, time, out);
 	}
 
 	private final static Vector3 getScalingAtTime (final NodeAnimation nodeAnim, final float time, final Vector3 out) {
-		if (nodeAnim.scaling == null) return out.set(nodeAnim.node.scale);
-		if (nodeAnim.scaling.size == 1) return out.set(nodeAnim.scaling.get(0).value);
+		int offset = nodeAnim.scaleOffset;
+		int count = nodeAnim.scaleCount;
+		float[] times = nodeAnim.times;
+		float[] data = nodeAnim.data;
 
-		int index = getFirstKeyframeIndexAtTime(nodeAnim.scaling, time);
-		final NodeKeyframe firstKeyframe = nodeAnim.scaling.get(index);
-		out.set((Vector3)firstKeyframe.value);
+		if (offset < 0) return out.set(nodeAnim.node.scale);
+		if (count == 1) return getVec3(data, offset, out);
 
-		if (++index < nodeAnim.scaling.size) {
-			final NodeKeyframe<Vector3> secondKeyframe = nodeAnim.scaling.get(index);
-			final float t = (time - firstKeyframe.keytime) / (secondKeyframe.keytime - firstKeyframe.keytime);
-			out.lerp(secondKeyframe.value, t);
+		return getVec3AtTime(offset, count, times, data, time, out);
+	}
+
+	private final static Quaternion getRotationAtTime (final NodeAnimation nodeAnim, final float time, final Quaternion out) {
+		int offset = nodeAnim.rotationOffset;
+		int count = nodeAnim.rotationCount;
+		float[] times = nodeAnim.times;
+		float[] data = nodeAnim.data;
+
+		if (offset < 0) return out.set(nodeAnim.node.rotation);
+		if (count == 1) return getQuat(data, offset, out);
+
+		int index = getFirstKeyframeIndexAtTime(times, offset, count, time);
+		getQuat(data, index, out);
+
+		if (++index < offset + count) {
+			// interpolate to a second keyframe
+			float startTime = times[index-1];
+			float endTime = times[index];
+			final float t = (time - startTime) / (endTime - startTime);
+			getQuat(data, index, tmpQ);
+			out.slerp(tmpQ, t);
 		}
 		return out;
 	}
@@ -219,8 +252,8 @@ public class BaseAnimationController {
 	private final static Transform getNodeAnimationTransform (final NodeAnimation nodeAnim, final float time) {
 		final Transform transform = tmpT;
 		getTranslationAtTime(nodeAnim, time, transform.translation);
-		getRotationAtTime(nodeAnim, time, transform.rotation);
 		getScalingAtTime(nodeAnim, time, transform.scale);
+		getRotationAtTime(nodeAnim, time, transform.rotation);
 		return transform;
 	}
 

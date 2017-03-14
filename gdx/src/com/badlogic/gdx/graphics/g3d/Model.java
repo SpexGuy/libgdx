@@ -25,22 +25,8 @@ import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute;
-import com.badlogic.gdx.graphics.g3d.model.Animation;
-import com.badlogic.gdx.graphics.g3d.model.MeshPart;
-import com.badlogic.gdx.graphics.g3d.model.Node;
-import com.badlogic.gdx.graphics.g3d.model.NodeAnimation;
-import com.badlogic.gdx.graphics.g3d.model.NodeKeyframe;
-import com.badlogic.gdx.graphics.g3d.model.NodePart;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelAnimation;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelData;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelMaterial;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelMesh;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelMeshPart;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelNode;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelNodeAnimation;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelNodeKeyframe;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelNodePart;
-import com.badlogic.gdx.graphics.g3d.model.data.ModelTexture;
+import com.badlogic.gdx.graphics.g3d.model.*;
+import com.badlogic.gdx.graphics.g3d.model.data.*;
 import com.badlogic.gdx.graphics.g3d.utils.TextureDescriptor;
 import com.badlogic.gdx.graphics.g3d.utils.TextureProvider;
 import com.badlogic.gdx.graphics.g3d.utils.TextureProvider.FileTextureProvider;
@@ -48,12 +34,7 @@ import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.math.collision.BoundingBox;
-import com.badlogic.gdx.utils.Array;
-import com.badlogic.gdx.utils.ArrayMap;
-import com.badlogic.gdx.utils.BufferUtils;
-import com.badlogic.gdx.utils.Disposable;
-import com.badlogic.gdx.utils.GdxRuntimeException;
-import com.badlogic.gdx.utils.ObjectMap;
+import com.badlogic.gdx.utils.*;
 
 /** A model represents a 3D assets. It stores a hierarchy of nodes. A node has a transform and optionally a graphical part in form
  * of a {@link MeshPart} and {@link Material}. Mesh parts reference subsets of vertices in one of the meshes of the model.
@@ -120,39 +101,77 @@ public class Model implements Disposable {
 				NodeAnimation nodeAnim = new NodeAnimation();
 				nodeAnim.node = node;
 
-				if (nanim.translation != null) {
-					nodeAnim.translation = new Array<NodeKeyframe<Vector3>>();
-					nodeAnim.translation.ensureCapacity(nanim.translation.size);
+				boolean hasTranslation = false, hasRotation = false, hasScale = false;
+				int entryCount = 0;
+				if (nanim.translation != null && nanim.translation.size > 0) {
+					hasTranslation = true;
+					int tCount = nanim.translation.size;
+					nodeAnim.translationOffset = entryCount;
+					nodeAnim.translationCount = tCount;
+					entryCount += tCount;
+				}
+				if (nanim.rotation != null && nanim.rotation.size > 0) {
+					hasRotation = true;
+					int rCount = nanim.rotation.size;
+					nodeAnim.rotationOffset = entryCount;
+					nodeAnim.rotationCount = rCount;
+					entryCount += rCount;
+				}
+				if (nanim.scaling != null && nanim.scaling.size > 0) {
+					hasScale = true;
+					int sCount = nanim.scaling.size;
+					nodeAnim.scaleOffset = entryCount;
+					nodeAnim.scaleOffset = sCount;
+					entryCount += sCount;
+				}
+				if (entryCount == 0) continue;
+				nodeAnim.times = new float[entryCount];
+				nodeAnim.data = new float[entryCount << 2];
+
+				int timePos = 0;
+				int dataPos = 0;
+
+				if (hasTranslation) {
 					for (ModelNodeKeyframe<Vector3> kf : nanim.translation) {
 						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						nodeAnim.translation.add(new NodeKeyframe<Vector3>(kf.keytime, new Vector3(kf.value == null ? node.translation
-							: kf.value)));
+						Vector3 t = kf.value == null ? node.translation : kf.value;
+						nodeAnim.times[timePos++] = kf.keytime;
+						nodeAnim.data[dataPos + 0] = t.x;
+						nodeAnim.data[dataPos + 1] = t.y;
+						nodeAnim.data[dataPos + 2] = t.z;
+						dataPos += 4; // blank space so we can >>/<< by 2 instead of div.
 					}
 				}
 
-				if (nanim.rotation != null) {
-					nodeAnim.rotation = new Array<NodeKeyframe<Quaternion>>();
-					nodeAnim.rotation.ensureCapacity(nanim.rotation.size);
+				if (hasRotation) {
 					for (ModelNodeKeyframe<Quaternion> kf : nanim.rotation) {
 						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						nodeAnim.rotation.add(new NodeKeyframe<Quaternion>(kf.keytime, new Quaternion(kf.value == null ? node.rotation
-							: kf.value)));
+						Quaternion r = kf.value == null ? node.rotation : kf.value;
+						nodeAnim.times[timePos++] = kf.keytime;
+						nodeAnim.data[dataPos + 0] = r.x;
+						nodeAnim.data[dataPos + 1] = r.y;
+						nodeAnim.data[dataPos + 2] = r.z;
+						nodeAnim.data[dataPos + 3] = r.w;
+						dataPos += 4;
 					}
 				}
 
-				if (nanim.scaling != null) {
-					nodeAnim.scaling = new Array<NodeKeyframe<Vector3>>();
-					nodeAnim.scaling.ensureCapacity(nanim.scaling.size);
+				if (hasScale) {
 					for (ModelNodeKeyframe<Vector3> kf : nanim.scaling) {
 						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						nodeAnim.scaling.add(new NodeKeyframe<Vector3>(kf.keytime,
-							new Vector3(kf.value == null ? node.scale : kf.value)));
+						Vector3 s = kf.value == null ? node.scale : kf.value;
+						nodeAnim.times[timePos++] = kf.keytime;
+						nodeAnim.data[dataPos + 0] = s.x;
+						nodeAnim.data[dataPos + 1] = s.y;
+						nodeAnim.data[dataPos + 2] = s.z;
+						dataPos += 4; // blank space so we can >>/<< by 2 instead of div.
 					}
 				}
 
-				if ((nodeAnim.translation != null && nodeAnim.translation.size > 0)
-					|| (nodeAnim.rotation != null && nodeAnim.rotation.size > 0)
-					|| (nodeAnim.scaling != null && nodeAnim.scaling.size > 0)) animation.nodeAnimations.add(nodeAnim);
+				assert(dataPos == entryCount << 2);
+				assert(timePos == entryCount);
+
+				animation.nodeAnimations.add(nodeAnim);
 			}
 			if (animation.nodeAnimations.size > 0) animations.add(animation);
 		}
