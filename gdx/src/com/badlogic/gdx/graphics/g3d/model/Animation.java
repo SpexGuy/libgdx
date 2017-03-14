@@ -16,12 +16,9 @@
 
 package com.badlogic.gdx.graphics.g3d.model;
 
-import com.badlogic.gdx.graphics.g3d.Model;
-import com.badlogic.gdx.utils.Array;
-
-/** An Animation has an id and a list of {@link NodeAnimation} instances. Each NodeAnimation animates a single {@link Node} in the
- * {@link Model}. Every {@link NodeAnimation} is assumed to have the same amount of keyframes, at the same timestamps, as all
- * other node animations for faster keyframe searches.
+/** An Animation has an id, an array of {@link Node}s, and an array of keyframe data. Every {@link NodeAnimation} is
+ * assumed to have the same amount of keyframes, at the same timestamps, as all other node animations for faster
+ * keyframe searches.
  * 
  * @author badlogic */
 public class Animation {
@@ -29,6 +26,17 @@ public class Animation {
 	public String id;
 	/** the duration in seconds **/
 	public float duration;
-	/** the animation curves for individual nodes **/
-	public Array<NodeAnimation> nodeAnimations = new Array<NodeAnimation>();
+
+	/** The stride of one frame. **/
+	public int stride;
+
+	/** SOA NodeAnimation data with a transposed data array. **/
+	/** Times for the keyframes, in ascending order **/
+	public float[] times;
+	/** Nodes animated in the array **/
+	public Node[] nodes;
+	/** Formats for the nodes. Format is [to, ro, so] for each node, where /[trs]o/ is the translation/rotation/scale offset, or -1 **/
+	public int[] formats;
+	/** Node transformation data. Format is [tx, ty, tz] [rx, ry, rz, rw] [sx, sy, sz] for each node in a frame, for each frame. **/
+	public float[] data;
 }

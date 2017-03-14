@@ -25,7 +25,10 @@ import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute;
-import com.badlogic.gdx.graphics.g3d.model.*;
+import com.badlogic.gdx.graphics.g3d.model.Animation;
+import com.badlogic.gdx.graphics.g3d.model.MeshPart;
+import com.badlogic.gdx.graphics.g3d.model.Node;
+import com.badlogic.gdx.graphics.g3d.model.NodePart;
 import com.badlogic.gdx.graphics.g3d.model.data.*;
 import com.badlogic.gdx.graphics.g3d.utils.TextureDescriptor;
 import com.badlogic.gdx.graphics.g3d.utils.TextureProvider;
@@ -35,6 +38,8 @@ import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.math.collision.BoundingBox;
 import com.badlogic.gdx.utils.*;
+
+import java.util.Arrays;
 
 /** A model represents a 3D assets. It stores a hierarchy of nodes. A node has a transform and optionally a graphical part in form
  * of a {@link MeshPart} and {@link Material}. Mesh parts reference subsets of vertices in one of the meshes of the model.
@@ -93,87 +98,120 @@ public class Model implements Disposable {
 
 	protected void loadAnimations (Iterable<ModelAnimation> modelAnimations) {
 		for (final ModelAnimation anim : modelAnimations) {
-			Animation animation = new Animation();
-			animation.id = anim.id;
+			int numNodes = anim.nodeAnimations.size;
+			if (numNodes == 0) continue;
+
+			// First, remove any invalid animations.
+			ModelNodeAnimation[] validAnimations = new ModelNodeAnimation[numNodes];
+			Node[] nodes = new Node[numNodes];
+
+			numNodes = 0;
 			for (ModelNodeAnimation nanim : anim.nodeAnimations) {
+				if ((nanim.translation == null || nanim.translation.size == 0) &&
+					(nanim.rotation == null || nanim.rotation.size == 0) &&
+					(nanim.scaling == null || nanim.scaling.size == 0))
+					continue;
+
 				final Node node = getNode(nanim.nodeId);
 				if (node == null) continue;
-				NodeAnimation nodeAnim = new NodeAnimation();
-				nodeAnim.node = node;
 
-				boolean hasTranslation = false, hasRotation = false, hasScale = false;
-				int entryCount = 0;
-				if (nanim.translation != null && nanim.translation.size > 0) {
-					hasTranslation = true;
-					int tCount = nanim.translation.size;
-					nodeAnim.translationOffset = entryCount;
-					nodeAnim.translationCount = tCount;
-					entryCount += tCount;
-				}
-				if (nanim.rotation != null && nanim.rotation.size > 0) {
-					hasRotation = true;
-					int rCount = nanim.rotation.size;
-					nodeAnim.rotationOffset = entryCount;
-					nodeAnim.rotationCount = rCount;
-					entryCount += rCount;
-				}
-				if (nanim.scaling != null && nanim.scaling.size > 0) {
-					hasScale = true;
-					int sCount = nanim.scaling.size;
-					nodeAnim.scaleOffset = entryCount;
-					nodeAnim.scaleOffset = sCount;
-					entryCount += sCount;
-				}
-				if (entryCount == 0) continue;
-				nodeAnim.times = new float[entryCount];
-				nodeAnim.data = new float[entryCount << 2];
-
-				int timePos = 0;
-				int dataPos = 0;
-
-				if (hasTranslation) {
-					for (ModelNodeKeyframe<Vector3> kf : nanim.translation) {
-						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						Vector3 t = kf.value == null ? node.translation : kf.value;
-						nodeAnim.times[timePos++] = kf.keytime;
-						nodeAnim.data[dataPos + 0] = t.x;
-						nodeAnim.data[dataPos + 1] = t.y;
-						nodeAnim.data[dataPos + 2] = t.z;
-						dataPos += 4; // blank space so we can >>/<< by 2 instead of div.
-					}
-				}
-
-				if (hasRotation) {
-					for (ModelNodeKeyframe<Quaternion> kf : nanim.rotation) {
-						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						Quaternion r = kf.value == null ? node.rotation : kf.value;
-						nodeAnim.times[timePos++] = kf.keytime;
-						nodeAnim.data[dataPos + 0] = r.x;
-						nodeAnim.data[dataPos + 1] = r.y;
-						nodeAnim.data[dataPos + 2] = r.z;
-						nodeAnim.data[dataPos + 3] = r.w;
-						dataPos += 4;
-					}
-				}
-
-				if (hasScale) {
-					for (ModelNodeKeyframe<Vector3> kf : nanim.scaling) {
-						if (kf.keytime > animation.duration) animation.duration = kf.keytime;
-						Vector3 s = kf.value == null ? node.scale : kf.value;
-						nodeAnim.times[timePos++] = kf.keytime;
-						nodeAnim.data[dataPos + 0] = s.x;
-						nodeAnim.data[dataPos + 1] = s.y;
-						nodeAnim.data[dataPos + 2] = s.z;
-						dataPos += 4; // blank space so we can >>/<< by 2 instead of div.
-					}
-				}
-
-				assert(dataPos == entryCount << 2);
-				assert(timePos == entryCount);
-
-				animation.nodeAnimations.add(nodeAnim);
+				validAnimations[numNodes] = nanim;
+				nodes[numNodes] = node;
+				numNodes++;
 			}
-			if (animation.nodeAnimations.size > 0) animations.add(animation);
+			if (numNodes == 0) continue;
+
+			// Next, use the first node as a template for all of them.
+			// We will assume that all active channels on a node share the same keyframes,
+			// and all nodes share the same keyframes.
+			ModelNodeAnimation template = validAnimations[0];
+			Array frameTemplate; {
+				if (template.translation != null && template.translation.size > 0) frameTemplate = template.translation;
+				else if (template.rotation != null && template.rotation.size > 0) frameTemplate = template.rotation;
+				else frameTemplate = template.scaling;
+			}
+			assert(frameTemplate != null && frameTemplate.size > 0);
+
+			int numFrames = frameTemplate.size;
+			float[] times = new float[numFrames];
+			for (int c = 0; c < numFrames; c++) {
+				ModelNodeKeyframe frame = (ModelNodeKeyframe) frameTemplate.get(c);
+				times[c] = frame.keytime;
+			}
+
+			// We can now go through the nodes and prepare the node formats.
+			int stride = 0;
+			int[] formats = new int[3 * numNodes];
+			for (int c = 0, base = 0; c < numNodes; c++, base += 3) {
+				ModelNodeAnimation node = validAnimations[c];
+				int to = -1, ro = -1, so = -1;
+				if (node.translation != null && node.translation.size > 0) {
+					assert(node.translation.size == numFrames);
+					to = stride;
+					stride += 3;
+				}
+				if (node.rotation != null && node.rotation.size > 0) {
+					assert(node.rotation.size == numFrames);
+					ro = stride;
+					stride += 4;
+				}
+				if (node.scaling != null && node.scaling.size > 0) {
+					assert(node.scaling.size == numFrames);
+					so = stride;
+					stride += 3;
+				}
+				formats[base + 0] = to;
+				formats[base + 1] = ro;
+				formats[base + 2] = so;
+			}
+
+			// Finally, we can buffer the data.
+			float[] data = new float[stride * numFrames];
+			for (int c = 0, base = 0; c < numNodes; c++, base += 3) {
+				ModelNodeAnimation node = validAnimations[c];
+				int to = formats[base + 0];
+				int ro = formats[base + 1];
+				int so = formats[base + 2];
+
+				for (int i = 0, pos = 0; i < numFrames; i++, pos += stride) {
+					if (to >= 0) {
+						ModelNodeKeyframe<Vector3> t = node.translation.get(i);
+						assert(t.keytime == times[i]);
+						Vector3 value = t.value == null ? nodes[c].translation : t.value;
+						data[pos + to + 0] = value.x;
+						data[pos + to + 1] = value.y;
+						data[pos + to + 2] = value.z;
+					}
+					if (ro >= 0) {
+						ModelNodeKeyframe<Quaternion> t = node.rotation.get(i);
+						assert(t.keytime == times[i]);
+						Quaternion value = t.value == null ? nodes[c].rotation : t.value;
+						data[pos + ro + 0] = value.x;
+						data[pos + ro + 1] = value.y;
+						data[pos + ro + 2] = value.z;
+						data[pos + ro + 3] = value.w;
+					}
+					if (so >= 0) {
+						ModelNodeKeyframe<Vector3> t = node.scaling.get(i);
+						assert(t.keytime == times[i]);
+						Vector3 value = t.value == null ? nodes[c].scale : t.value;
+						data[pos + so + 0] = value.x;
+						data[pos + so + 1] = value.y;
+						data[pos + so + 2] = value.z;
+					}
+				}
+			}
+
+			// After all that, we can create the animation structure.
+			Animation animation = new Animation();
+			animation.id = anim.id;
+			animation.duration = times[numFrames - 1];
+			animation.stride = stride;
+			animation.times = times;
+			animation.nodes = Arrays.copyOf(nodes, numNodes); // realloc so the length is correct
+			animation.formats = formats;
+			animation.data = data;
+			animations.add(animation);
 		}
 	}
 

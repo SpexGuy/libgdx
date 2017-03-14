@@ -285,24 +285,17 @@ public class ModelInstance implements RenderableProvider {
 			Animation animation = new Animation();
 			animation.id = anim.id;
 			animation.duration = anim.duration;
-			for (final NodeAnimation nanim : anim.nodeAnimations) {
-				final Node node = getNode(nanim.node.id);
-				if (node == null) continue;
-				if (nanim.times.length == 0) continue;
-				NodeAnimation nodeAnim = new NodeAnimation();
-				nodeAnim.node = node;
-				nodeAnim.translationOffset = nanim.translationOffset;
-				nodeAnim.rotationOffset = nanim.rotationOffset;
-				nodeAnim.scaleOffset = nanim.scaleOffset;
-				if (shareKeyframes) {
-					nodeAnim.times = nanim.times;
-					nodeAnim.data = nanim.data;
-				} else {
-					nodeAnim.times = Arrays.copyOf(nanim.times, nanim.times.length);
-					nodeAnim.data = Arrays.copyOf(nanim.data, nanim.data.length);
-				}
+			animation.stride = anim.stride;
+			animation.nodes = anim.nodes;
+			animation.formats = anim.formats;
+			if (shareKeyframes) {
+				animation.times = anim.times;
+				animation.data = anim.data;
+			} else {
+				animation.times = Arrays.copyOf(anim.times, anim.times.length);
+				animation.data = Arrays.copyOf(anim.data, anim.data.length);
 			}
-			if (animation.nodeAnimations.size > 0) animations.add(animation);
+			animations.add(animation);
 		}
 	}
 

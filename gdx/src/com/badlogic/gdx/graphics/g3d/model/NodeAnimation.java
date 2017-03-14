@@ -35,6 +35,6 @@ public class NodeAnimation {
 	public int scaleCount = 0;
 	/** the keyframe times, sorted by time ascending. **/
 	public float[] times;
-	/** the keyframe data, sorted by time ascending **/
+	/** the keyframe data, sorted by time ascending. **/
 	public float[] data;
 }

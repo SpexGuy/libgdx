@@ -19,7 +19,6 @@ package com.badlogic.gdx.graphics.g3d.utils;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.graphics.g3d.model.Animation;
 import com.badlogic.gdx.graphics.g3d.model.Node;
-import com.badlogic.gdx.graphics.g3d.model.NodeAnimation;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
@@ -156,10 +155,11 @@ public class BaseAnimationController {
 
 	private final static Transform tmpT = new Transform();
 	private final static Quaternion tmpQ = new Quaternion();
+	private final static Vector3 tmpV = new Vector3();
 
-	private final static int getFirstKeyframeIndexAtTime (final float[] times, final int baseIdx, final int count, final float time) {
-		final int last = baseIdx + count - 1;
-		for (int i = baseIdx; i < last; i++) {
+	private final static int getFirstKeyframeIndexAtTime (final float[] times, final float time) {
+		final int last = times.length - 1;
+		for (int i = 0; i < last; i++) {
 			if (time >= times[i] && time <= times[i + 1]) {
 				return i;
 			}
@@ -167,16 +167,14 @@ public class BaseAnimationController {
 		return 0;
 	}
 
-	private final static Vector3 getVec3(final float[] data, final int idx, final Vector3 out) {
-		int base = idx << 2;
+	private final static Vector3 getVec3(final float[] data, final int base, final Vector3 out) {
 		out.x = data[base + 0];
 		out.y = data[base + 1];
 		out.z = data[base + 2];
 		return out;
 	}
 
-	private final static Quaternion getQuat(final float[] data, final int idx, final Quaternion out) {
-		int base = idx << 2;
+	private final static Quaternion getQuat(final float[] data, final int base, final Quaternion out) {
 		out.x = data[base + 0];
 		out.y = data[base + 1];
 		out.z = data[base + 2];
@@ -184,92 +182,13 @@ public class BaseAnimationController {
 		return out;
 	}
 
-	private final static Vector3 getVec3AtTime(final int offset, final int count, final float[] times, final float[] data, float time, final Vector3 out) {
-		int index = getFirstKeyframeIndexAtTime(times, offset, count, time);
-		out.x = data[index + 0];
-		out.y = data[index + 1];
-		out.z = data[index + 2];
-
-		if (++index < offset + count) {
-			// interpolate to a second keyframe
-			float startTime = times[index-1];
-			float endTime = times[index];
-			final float t = (time - startTime) / (endTime - startTime);
-			out.x += t * (data[index + 0] - out.x);
-			out.y += t * (data[index + 1] - out.y);
-			out.z += t * (data[index + 2] - out.z);
+	/** If out == null, applies the transform directly to the node. Otherwise interpolates with alpha the value in out, allocating from the pool if necessary **/
+	private final static void applyTransform(final Node node, final Transform transform, final ObjectMap<Node, Transform> out,
+									  final Pool<Transform> pool, final float alpha) {
+		if (out == null) {
+			transform.toMatrix4(node.localTransform);
+			return;
 		}
-		return out;
-	}
-
-	private final static Vector3 getTranslationAtTime (final NodeAnimation nodeAnim, final float time, final Vector3 out) {
-		int offset = nodeAnim.translationOffset;
-		int count = nodeAnim.translationCount;
-		float[] times = nodeAnim.times;
-		float[] data = nodeAnim.data;
-
-		if (offset < 0) return out.set(nodeAnim.node.translation);
-		if (count == 1) return getVec3(data, offset, out);
-
-		return getVec3AtTime(offset, count, times, data, time, out);
-	}
-
-	private final static Vector3 getScalingAtTime (final NodeAnimation nodeAnim, final float time, final Vector3 out) {
-		int offset = nodeAnim.scaleOffset;
-		int count = nodeAnim.scaleCount;
-		float[] times = nodeAnim.times;
-		float[] data = nodeAnim.data;
-
-		if (offset < 0) return out.set(nodeAnim.node.scale);
-		if (count == 1) return getVec3(data, offset, out);
-
-		return getVec3AtTime(offset, count, times, data, time, out);
-	}
-
-	private final static Quaternion getRotationAtTime (final NodeAnimation nodeAnim, final float time, final Quaternion out) {
-		int offset = nodeAnim.rotationOffset;
-		int count = nodeAnim.rotationCount;
-		float[] times = nodeAnim.times;
-		float[] data = nodeAnim.data;
-
-		if (offset < 0) return out.set(nodeAnim.node.rotation);
-		if (count == 1) return getQuat(data, offset, out);
-
-		int index = getFirstKeyframeIndexAtTime(times, offset, count, time);
-		getQuat(data, index, out);
-
-		if (++index < offset + count) {
-			// interpolate to a second keyframe
-			float startTime = times[index-1];
-			float endTime = times[index];
-			final float t = (time - startTime) / (endTime - startTime);
-			getQuat(data, index, tmpQ);
-			out.slerp(tmpQ, t);
-		}
-		return out;
-	}
-
-	private final static Transform getNodeAnimationTransform (final NodeAnimation nodeAnim, final float time) {
-		final Transform transform = tmpT;
-		getTranslationAtTime(nodeAnim, time, transform.translation);
-		getScalingAtTime(nodeAnim, time, transform.scale);
-		getRotationAtTime(nodeAnim, time, transform.rotation);
-		return transform;
-	}
-
-	private final static void applyNodeAnimationDirectly (final NodeAnimation nodeAnim, final float time) {
-		final Node node = nodeAnim.node;
-		node.isAnimated = true;
-		final Transform transform = getNodeAnimationTransform(nodeAnim, time);
-		transform.toMatrix4(node.localTransform);
-	}
-
-	private final static void applyNodeAnimationBlending (final NodeAnimation nodeAnim, final ObjectMap<Node, Transform> out,
-		final Pool<Transform> pool, final float alpha, final float time) {
-
-		final Node node = nodeAnim.node;
-		node.isAnimated = true;
-		final Transform transform = getNodeAnimationTransform(nodeAnim, time);
 
 		Transform t = out.get(node, null);
 		if (t != null) {
@@ -283,20 +202,84 @@ public class BaseAnimationController {
 			else
 				out.put(node, pool.obtain().set(node.translation, node.rotation, node.scale).lerp(transform, alpha));
 		}
+
+	}
+
+	/** Applies an animation to either an objectmap or directly to the bones. **/
+	private final static void applyAnimationBlending (final Animation anim, final ObjectMap<Node, Transform> out,
+		final Pool<Transform> pool, final float alpha, final float time) {
+		final Transform transform = tmpT;
+
+		Node[] nodes = anim.nodes;
+		int[] formats = anim.formats;
+		float[] data = anim.data;
+
+		// degenerate cases
+		if (nodes.length == 0) return;
+		if (nodes.length == 1) {
+			Node node = nodes[0];
+
+			if (formats[0] >= 0) getVec3(data, formats[0], transform.translation);
+			else transform.translation.set(node.translation);
+			if (formats[1] >= 0) getQuat(data, formats[1], transform.rotation);
+			else transform.rotation.set(node.rotation);
+			if (formats[2] >= 0) getVec3(data, formats[2], transform.scale);
+			else transform.scale.set(node.scale);
+
+			applyTransform(node, transform, out, pool, alpha);
+			node.isAnimated = true;
+
+			return;
+		}
+
+		// find the current keyframes, lerp position, and buffer positions.
+		// frameIdx is guaranteed not to be the last keyframe, so we will always have a lerp target.
+		int frameIdx = getFirstKeyframeIndexAtTime(anim.times, time);
+		float z = (time - anim.times[frameIdx]) / (anim.times[frameIdx + 1] - anim.times[frameIdx]);
+		int currPos = frameIdx * anim.stride;
+		int nextPos = currPos + anim.stride;
+
+		for (int c = 0, base = 0, n = nodes.length; c < n; c++, base += 3) {
+			Node node = nodes[c];
+			int to = formats[base + 0];
+			int ro = formats[base + 1];
+			int so = formats[base + 2];
+
+			if (to >= 0) {
+				getVec3(data, currPos + to, transform.translation);
+				getVec3(data, nextPos + to, tmpV);
+				transform.translation.lerp(tmpV, z);
+			}
+			if (ro >= 0) {
+				getQuat(data, currPos + ro, transform.rotation);
+				getQuat(data, nextPos + ro, tmpQ);
+				transform.rotation.slerp(tmpQ, z);
+			}
+			if (so >= 0) {
+				getVec3(data, currPos + so, transform.scale);
+				getVec3(data, nextPos + so, tmpV);
+				transform.scale.lerp(tmpV, z);
+			}
+
+			applyTransform(node, transform, out, pool, alpha);
+			node.isAnimated = true;
+		}
 	}
 
 	/** Helper method to apply one animation to either an objectmap for blending or directly to the bones. */
 	protected static void applyAnimation (final ObjectMap<Node, Transform> out, final Pool<Transform> pool, final float alpha,
 		final Animation animation, final float time) {
 
-		if (out == null) {
-			for (final NodeAnimation nodeAnim : animation.nodeAnimations)
-				applyNodeAnimationDirectly(nodeAnim, time);
-		} else {
+		boolean blend = out != null;
+
+		if (blend) {
 			for (final Node node : out.keys())
 				node.isAnimated = false;
-			for (final NodeAnimation nodeAnim : animation.nodeAnimations)
-				applyNodeAnimationBlending(nodeAnim, out, pool, alpha, time);
+		}
+
+		applyAnimationBlending(animation, out, pool, alpha, time);
+
+		if (blend) {
 			for (final ObjectMap.Entry<Node, Transform> e : out.entries()) {
 				if (!e.key.isAnimated) {
 					e.key.isAnimated = true;
@@ -309,8 +292,8 @@ public class BaseAnimationController {
 	/** Remove the specified animation, by marking the affected nodes as not animated. When switching animation, this should be call
 	 * prior to applyAnimation(s). */
 	protected void removeAnimation (final Animation animation) {
-		for (final NodeAnimation nodeAnim : animation.nodeAnimations) {
-			nodeAnim.node.isAnimated = false;
+		for (Node node : animation.nodes) {
+			node.isAnimated = false;
 		}
 	}
 }
